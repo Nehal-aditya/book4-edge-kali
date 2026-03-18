@@ -6,6 +6,7 @@ hyperv-daemons
 open-vm-tools
 open-vm-tools-desktop
 qemu-guest-agent
+spice-vdagent
 virtualbox-guest-utils
 virtualbox-guest-x11
 xauth
