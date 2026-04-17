@@ -11,21 +11,19 @@
 # and build.sh copies it where required (in the simple-cdd configuration
 # and in the live-build configuration).
 
-configure_sources_list() {
-    if grep -q '^deb ' /etc/apt/sources.list; then
-        echo "INFO: sources.list is configured, everything is fine"
-        return
-    fi
+configure_apt_sources_list() {
+    echo "INFO: setting up kali.sources as the only APT data source"
 
-    echo "INFO: sources.list is empty, setting up a default one for Kali"
-
-    cat >/etc/apt/sources.list <<END
-# See https://www.kali.org/docs/general-use/kali-linux-sources-list-repositories/
-deb http://http.kali.org/kali kali-rolling main contrib non-free non-free-firmware
-
-# Additional line for source packages
-# deb-src http://http.kali.org/kali kali-rolling main contrib non-free non-free-firmware
+    rm -f /etc/apt/sources.list.d/* /etc/apt/sources.list
+    cat  >/etc/apt/sources.list.d/kali.sources <<END
+# See https://www.kali.org/docs/general-use/kali-apt-sources/
+Types: deb
+URIs: http://http.kali.org/kali/
+Suites: kali-rolling
+Components: main contrib non-free non-free-firmware
+Signed-By: /usr/share/keyrings/kali-archive-keyring.gpg
 END
+
     apt-get update
 }
 
