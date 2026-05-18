@@ -19,6 +19,9 @@
 d-i mirror/country string enter information manually
 d-i mirror/http/hostname string http.kali.org
 d-i mirror/http/directory string /kali
+d-i mirror/https/countries string enter information manually
+d-i mirror/https/hostname string http.kali.org
+d-i mirror/https/directory string /kali
 
 # Disable security, updates and backports
 d-i apt-setup/services-select multiselect 
