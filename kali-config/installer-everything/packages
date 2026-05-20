@@ -5,6 +5,9 @@
 
 ## Installer images always want these
 kali-linux-firmware
+firmware-amd-graphics
+firmware-intel-graphics
+firmware-nvidia-graphics
 
 ## Graphical desktop
 ##   For the complete list see: https://www.kali.org/docs/general-use/metapackages/
