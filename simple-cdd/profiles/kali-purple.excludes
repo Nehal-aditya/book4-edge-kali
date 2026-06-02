@@ -1,0 +1,3 @@
+# Remove some big packages that are not strictly mandatory,
+# otherwise the iso is too big
+fonts-noto-cjk-extra
