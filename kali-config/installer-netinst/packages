@@ -5,9 +5,7 @@
 
 ## Installer images always want these
 kali-linux-firmware
-firmware-amd-graphics
-firmware-intel-graphics
-firmware-nvidia-graphics
+kali-linux-firmware-graphics
 amd64-microcode
 intel-microcode
 
