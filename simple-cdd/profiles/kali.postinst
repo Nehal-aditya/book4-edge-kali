@@ -95,7 +95,50 @@ xfce  qterminal
 END
 }
 
+remove_unneeded_firmware() {
+    # Detect virtualization
+    command -v systemd-detect-virt >/dev/null || return 0
+    virt=$(systemd-detect-virt) || return 0
+    echo "INFO: detected virtual environment: $virt"
+
+    # We are running in a virtualized environment, no need for microcode or
+    # graphics firmware. Let's check if those packages are installed.
+    to_remove=
+    while read -r pkg; do
+        pkg_installed $pkg || continue
+        to_remove="$to_remove $pkg"
+    done <<END
+amd64-microcode
+intel-microcode
+firmware-amd-graphics
+firmware-intel-graphics
+firmware-nvidia-graphics
+END
+    if [ -z "$to_remove" ]; then
+        echo "INFO: no package to remove"
+        return 0
+    fi
+
+    # Use dpkg to remove packages, in order to fail if there are any reverse
+    # dependency (there shouldn't be any), rather than taking the risk of
+    # removing it (what apt would do).
+    #
+    # We're not sure if the initrd will be rebuilt automatically (it depends
+    # on which packages get removed), so check and rebuild if needed.
+    echo "INFO: removing microcode and graphics firmware below:"
+    echo "INFO:" $to_remove
+    initrd=$(ls /boot/initrd.img* | tail -1)
+    timestamp_before=$(stat -c %Y "$initrd")
+    dpkg --purge $to_remove || true
+    timestamp_after=$(stat -c %Y "$initrd")
+    if [ "$timestamp_before" = "$timestamp_after" ]; then
+        echo "INFO: rebuilding the initrd"
+        update-initramfs -u -k all || true
+    fi
+}
+
 configure_apt_sources_list
 configure_zsh
 configure_usergroups
 configure_terminal
+remove_unneeded_firmware
