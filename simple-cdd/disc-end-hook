@@ -38,7 +38,7 @@ if [ -e "../boot$DISKNUM/isolinux/menu.cfg" ]; then
                "../boot$DISKNUM"/isolinux/*.txt
 fi
 
-if [ -d boot/grub/theme ] && [ -s boot/grub/theme ]; then
+if [ -d boot/grub/theme ] && [ -n "$( ls -A boot/grub/theme )" ]; then
   fix_branding boot/grub/theme/*
 fi
 
