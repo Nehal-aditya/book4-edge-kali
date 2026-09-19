@@ -431,7 +431,7 @@ check_os() {
 
   ## See: ./README.md
   require_package debian-cd "3.2.1+kali1"
-  require_package simple-cdd "0.6.9"
+  require_package simple-cdd "0.6.10"
 }
 
 ## valid_hostname <name> - check name is letters/digits/hyphens, no leading/trailing hyphen
