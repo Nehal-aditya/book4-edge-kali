@@ -49,7 +49,7 @@ configure_zsh() {
     fi
     for user in $(get_user_list); do
         echo "INFO: changing default shell of user '$user' to zsh"
-        chsh --shell /usr/bin/zsh $user
+        chsh --shell /usr/bin/zsh "$user"
     done
 }
 
@@ -68,8 +68,8 @@ configure_usergroups() {
     for user in $(get_user_list | grep -xv root); do
         echo "INFO: adding user '$user' to groups '$kali_groups'"
         for grp in $kali_groups; do
-            getent group $grp >/dev/null || continue
-            usermod -a -G $grp $user
+            getent group "$grp" >/dev/null || continue
+            usermod -a -G "$grp" "$user"
         done
     done
 }
@@ -80,9 +80,9 @@ pkg_installed() {
 
 configure_terminal() {
     while read -r desktop terminal; do
-        pkg_installed kali-desktop-$desktop || continue
+        pkg_installed "kali-desktop-$desktop" || continue
         echo "INFO: setting x-terminal-emulator alternative to '$terminal'"
-        update-alternatives --verbose --set x-terminal-emulator /usr/bin/$terminal || true
+        update-alternatives --verbose --set x-terminal-emulator "/usr/bin/$terminal" || true
         break
     done <<END
 e17   terminology
@@ -105,7 +105,7 @@ remove_unneeded_firmware() {
     # graphics firmware. Let's check if those packages are installed.
     to_remove=
     while read -r pkg; do
-        pkg_installed $pkg || continue
+        pkg_installed "$pkg" || continue
         to_remove="$to_remove $pkg"
     done <<END
 amd64-microcode
@@ -127,9 +127,11 @@ END
     # We're not sure if the initrd will be rebuilt automatically (it depends
     # on which packages get removed), so check and rebuild if needed.
     echo "INFO: removing microcode and graphics firmware below:"
+    # shellcheck disable=SC2086 # to_remove is intentionally a space-separated package list
     echo "INFO:" $to_remove
-    initrd=$(ls /boot/initrd.img* | tail -1)
+    initrd=$(find /boot -maxdepth 1 -name 'initrd.img*' | sort | tail -1)
     timestamp_before=$(stat -c %Y "$initrd")
+    # shellcheck disable=SC2086 # to_remove is intentionally a space-separated package list
     dpkg --purge $to_remove || true
     timestamp_after=$(stat -c %Y "$initrd")
     if [ "$timestamp_before" = "$timestamp_after" ]; then
