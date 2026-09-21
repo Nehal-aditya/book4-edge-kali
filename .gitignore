@@ -1,13 +1,15 @@
-## Directories
+# Build output
+output/
+
+## macOS
+.DS_Store
+
+## simple-cdd/debian-cd artifacts
+/images
 simple-cdd/images/*
 simple-cdd/tmp/*
 ## Overwritten due to build.sh
 simple-cdd/debian-cd/*
 simple-cdd/profiles/kali.downloads
-## In case symlink, no slash
-images
-
-## Files
-.mirror
-build.log
-
+simple-cdd/profiles/kali.packages
+simple-cdd/profiles/kali.preseed.orig
