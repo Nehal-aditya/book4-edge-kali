@@ -572,11 +572,8 @@ unset _pkgs
   || fail_invalid -m "${BUILD_MIRROR}" "must be a URL with no spaces (e.g. http://host/path)"
 
 ## Filename structure for final file
-if [ "${VARIANT}" = "default" ]; then
-  OUT_FILENAME="kali-linux-${VERSION,,}-installer-${ARCH,,}.iso"
-else
-  OUT_FILENAME="kali-linux-${VERSION,,}-installer-${VARIANT,,}-${ARCH,,}.iso"
-fi
+OUT_FILENAME="kali-linux-${VERSION,,}-${PROJECT,,}-${VARIANT,,}-${ARCH,,}.iso"
+OUT_FILENAME="${OUT_FILENAME/-default-/-}"
 
 valid_hostname "${KALI_HOSTNAME}" \
   || fail_invalid -H "${KALI_HOSTNAME}" "must contain only letters, digits and hyphens"
