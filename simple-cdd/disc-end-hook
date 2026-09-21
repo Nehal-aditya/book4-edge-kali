@@ -2,10 +2,15 @@
 
 set -e
 
+# Args from DISC_END_HOOK: ./simple-cdd/debian-cd/tools/make_disc_trees.pl
+#   Only DISKNUM ($3) and CDDIR ($4) are used here
+# shellcheck disable=SC2034
 TDIR=$1
+# shellcheck disable=SC2034
 MIRROR=$2
 DISKNUM=$3
 CDDIR=$4
+# shellcheck disable=SC2034
 ARCHES=$5
 
 fix_branding() {
@@ -21,19 +26,19 @@ fix_branding() {
 #   Until debian-cd picks them from d-i automatically:
 #   http://bugs.debian.org/1003927
 # Also: kali-config/common/bootloaders/grub-pc/grub-theme.in
-cp -r $BASEDIR/../../kali-config/common/bootloaders/grub-pc/theme \
-      $BASEDIR/../../kali-config/common/bootloaders/grub-pc/splash.png \
-      $CDDIR/boot/grub/
+cp -r "$BASEDIR/../../kali-config/common/bootloaders/grub-pc/theme" \
+      "$BASEDIR/../../kali-config/common/bootloaders/grub-pc/splash.png" \
+      "$CDDIR/boot/grub/"
 
-cd $CDDIR/
+cd "$CDDIR/"
 
 # Rebrand Debian into Kali
-if [ -e ../boot$DISKNUM/isolinux/menu.cfg ]; then
-  fix_branding ../boot$DISKNUM/isolinux/menu.cfg \
-               ../boot$DISKNUM/isolinux/*.txt
+if [ -e "../boot$DISKNUM/isolinux/menu.cfg" ]; then
+  fix_branding "../boot$DISKNUM/isolinux/menu.cfg" \
+               "../boot$DISKNUM"/isolinux/*.txt
 fi
 
-if [ -d boot/grub/theme ] && [ -s boot/grub/theme ]; then
+if [ -d boot/grub/theme ] && [ -n "$( ls -A boot/grub/theme )" ]; then
   fix_branding boot/grub/theme/*
 fi
 
