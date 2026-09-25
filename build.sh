@@ -32,7 +32,7 @@ cd "$( dirname "$( readlink -f "${BASH_SOURCE[0]}" )" )"
 #
 
 ## Defaults
-DEFAULT_ARCH="amd64"
+DEFAULT_ARCH="arm64"
 DEFAULT_BRANCH="kali-rolling"
 DEFAULT_BUILD_MIRROR="http://http.kali.org/kali"
 DEFAULT_KALI_HOSTNAME="kali"
