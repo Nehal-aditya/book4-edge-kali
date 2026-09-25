@@ -166,7 +166,7 @@ jobs:
 
           mkdir -p "$OUT_DIR"
 
-          sudo --preserve-env=OUT_DIR env DEBUG=1 ./build.sh \
+          sudo --preserve-env=OUT_DIR env DEBUG=0 ./build.sh \
             --arch arm64 \
             --output "$OUT_DIR"
 
