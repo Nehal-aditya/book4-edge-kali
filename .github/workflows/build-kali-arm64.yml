@@ -146,12 +146,18 @@ jobs:
           sudo apt-get install --yes ./debian-cd.deb
 
           installed_version="$(dpkg-query -W -f='${Version}' debian-cd)"
-          echo "Installed Kali live-build version: $installed_version"
+          echo "Installed Kali debian-cd version: $installed_version"
 
           test "$installed_version" = "3.2.3"
 
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends simple-cdd
+          sudo apt-get install --yes --no-install-recommends reprepro
+          
+          wget \
+            -O simple-cdd.deb \
+            "https://http.kali.org/kali/pool/main/s/simple-cdd/simple-cdd_0.6.10_all.deb"
+          
+          sudo apt-get install --yes ./simple-cdd.deb
 
       - name: Build Kali ARM64 offline installer image
         shell: bash
