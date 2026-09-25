@@ -1,0 +1,479 @@
+name: Build Kali Linux Offline Installer ARM64 ISO
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - 'nightly-*'
+  
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag, for example v1.0.0 or nightly-2026-09-24'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  DEBIAN_FRONTEND: noninteractive
+  OUT_DIR: ${{ github.workspace }}/output
+
+jobs:
+  build-arm64:
+    name: Build and publish ARM64 Kali Live ISO
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 360
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Determine release tag
+        id: release-tag
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_TAG: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            tag="$INPUT_TAG"
+          else
+            tag="$PUSH_TAG"
+          fi
+
+          if [[ ! "$tag" =~ ^v.+$ && ! "$tag" =~ ^nightly-.+$ ]]; then
+            echo "Invalid release tag: $tag"
+            echo "The tag must start with 'v' or 'nightly-'."
+            exit 1
+          fi
+
+          echo "Using release tag: $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Clean runner disk
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+          docker system prune --all --force --volumes || true
+          docker image prune --all --force || true
+
+          for path in \
+            /usr/local/lib/android \
+            /usr/share/dotnet \
+            /opt/ghc \
+            /usr/local/share/powershell \
+            /usr/local/lib/node_modules; do
+            if [ -e "$path" ]; then
+              sudo rm -rf "$path"
+            fi
+          done
+
+          df -h
+
+      - name: Install host prerequisites for non-Kali Ubuntu build
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            apt-utils \
+            ca-certificates \
+            cpio \
+            gzip \
+            debootstrap \
+            wget \
+            zstd \
+            xorriso \
+            dosfstools \
+            mtools
+
+      - name: Install Kali archive keyring, simple-cdd and live-build
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          workdir="$(mktemp -d)"
+          trap 'rm -rf "$workdir"' EXIT
+          cd "$workdir"
+
+          keyring_package="$(
+            wget -qO- \
+              https://http.kali.org/pool/main/k/kali-archive-keyring/ \
+              | grep -oE 'kali-archive-keyring_[^"]+_all\.deb' \
+              | sort -V \
+              | tail -n 1
+          )"
+
+          debian_cd_package="$(
+            wget -qO- \
+              https://http.kali.org/kali/pool/main/d/debian-cd/ \
+              | grep -oE 'debian-cd_[0-9]+\.[0-9]+\.[0-9]+_all\.deb' \
+              | sort -V \
+              | tail -n 1
+          )"
+
+          test -n "$keyring_package"
+          test -n "$debian_cd_package"
+
+          echo "Selected archive keyring: $keyring_package"
+          echo "Selected Kali Debian CD: $debian_cd_package"
+
+          wget \
+            "https://http.kali.org/pool/main/k/kali-archive-keyring/$keyring_package"
+
+          sudo apt-get install --yes "./$keyring_package"
+
+          # Download using a stable local filename. This avoids issues caused
+          # by wget handling the encoded %2B in the remote filename.
+          wget \
+            -O debian-cd.deb \
+            "https://http.kali.org/kali/pool/main/l/live-build/$debian_cd_package"
+
+          downloaded_version="$(dpkg-deb -f debian-cd.deb Version)"
+          echo "Downloaded debian-cd version: $downloaded_version"
+
+          test "$downloaded_version" = "1:20250814+kali3"
+
+          sudo apt-get install --yes ./debian-cd.deb
+
+          installed_version="$(dpkg-query -W -f='${Version}' debian-cd)"
+          echo "Installed Kali live-build version: $installed_version"
+
+          test "$installed_version" = "3.2.3"
+
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends simple-cdd
+
+      - name: Build Kali ARM64 offline installer image
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          mkdir -p "$OUT_DIR"
+
+          sudo --preserve-env=OUT_DIR env DEBUG=1 ./build.sh \
+            --arch arm64 \
+            --output "$OUT_DIR"
+
+          sudo chown -R "$USER:$USER" "$OUT_DIR"
+
+          find "$OUT_DIR" -maxdepth 1 -type f -name '*.iso' -print -quit | grep -q .
+
+      - name: Compress ISO, split large asset, create checksums, and prepare download scripts
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          iso_file="$(
+            find "$OUT_DIR" \
+              -maxdepth 1 \
+              -type f \
+              -name '*.iso' \
+              -print \
+              -quit
+          )"
+
+          test -n "$iso_file"
+
+          compressed="${iso_file}.zst"
+          compressed_name="$(basename "$compressed")"
+
+          zstd \
+            --ultra \
+            -19 \
+            -T0 \
+            --rm \
+            "$iso_file" \
+            -o "$compressed"
+
+          # Each release asset must remain below GitHub's 2 GiB limit.
+          split \
+            --bytes=1900M \
+            --numeric-suffixes=1 \
+            --suffix-length=3 \
+            "$compressed" \
+            "${compressed}.part-"
+
+          parts=( "$compressed".part-* )
+          test "${#parts[@]}" -gt 1
+
+          # Store basenames in checksum files so they work after downloading
+          # the assets into any directory.
+          (
+            cd "$OUT_DIR"
+            sha256sum "$compressed_name" > "${compressed_name}.sha256"
+            sha256sum "${compressed_name}.part-"* \
+              > "${compressed_name}.parts.sha256"
+          )
+
+          rm -f "$compressed"
+
+          cat > "$OUT_DIR/download-kali-arm64.sh" <<'DOWNLOAD_SCRIPT'
+          #!/usr/bin/env bash
+          set -Eeuo pipefail
+
+          usage() {
+            echo "Usage: $0 OWNER/REPOSITORY TAG [OUTPUT.zst]" >&2
+            exit 2
+          }
+
+          [[ $# -ge 2 && $# -le 3 ]] || usage
+
+          repository="$1"
+          tag="$2"
+          output="${3:-kali-linux-${tag#v}-live-arm64.iso.zst}"
+          workdir="$(mktemp -d)"
+          trap 'rm -rf "$workdir"' EXIT
+
+          api="https://api.github.com/repos/${repository}/releases/tags/${tag}"
+          curl_args=(
+            --fail
+            --silent
+            --show-error
+            --location
+            -H "Accept: application/vnd.github+json"
+            -H "X-GitHub-Api-Version: 2022-11-28"
+          )
+
+          if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+            curl_args+=( -H "Authorization: Bearer ${GITHUB_TOKEN}" )
+          fi
+
+          curl "${curl_args[@]}" "$api" > "$workdir/release.json"
+
+          asset_url() {
+            local name="$1"
+            jq -r --arg name "$name" \
+              '.assets[] | select(.name == $name) | .url' \
+              "$workdir/release.json" \
+              | head -n 1
+          }
+
+          download_asset() {
+            local name="$1"
+            local url
+
+            url="$(asset_url "$name")"
+
+            if [[ -z "$url" || "$url" == "null" ]]; then
+              echo "Missing release asset: $name" >&2
+              exit 1
+            fi
+
+            curl "${curl_args[@]}" \
+              -H "Accept: application/octet-stream" \
+              "$url" \
+              -o "$workdir/$name"
+          }
+
+          mapfile -t parts < <(
+            jq -r '.assets[].name
+              | select(test("\\.iso\\.zst\\.part-[0-9]+$"))' \
+              "$workdir/release.json" \
+              | sort -V
+          )
+
+          [[ "${#parts[@]}" -gt 1 ]] || {
+            echo "No split ISO parts found." >&2
+            exit 1
+          }
+
+          prefix="${parts[0]%.part-*}"
+          full_checksum="${prefix}.sha256"
+          parts_checksum="${prefix}.parts.sha256"
+
+          download_asset "$full_checksum"
+          download_asset "$parts_checksum"
+
+          for part in "${parts[@]}"; do
+            download_asset "$part"
+          done
+
+          (
+            cd "$workdir"
+            sha256sum -c "$parts_checksum"
+            cat "${parts[@]}" > "$output"
+            sha256sum -c "$full_checksum"
+          )
+
+          mv "$workdir/$output" "$output"
+          echo "Downloaded and verified: $output"
+          DOWNLOAD_SCRIPT
+
+          cat > "$OUT_DIR/download-kali-arm64.ps1" <<'DOWNLOAD_SCRIPT'
+          [CmdletBinding()]
+          param(
+            [Parameter(Mandatory = $true, Position = 0)]
+            [string] $Repository,
+
+            [Parameter(Mandatory = $true, Position = 1)]
+            [string] $Tag,
+
+            [Parameter(Position = 2)]
+            [string] $Output = "kali-linux-$($Tag.TrimStart('v'))-live-arm64.iso.zst"
+          )
+
+          $ErrorActionPreference = "Stop"
+
+          $api = "https://api.github.com/repos/$Repository/releases/tags/$Tag"
+          $headers = @{
+            Accept = "application/vnd.github+json"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+
+          if ($env:GITHUB_TOKEN) {
+            $headers.Authorization = "Bearer $($env:GITHUB_TOKEN)"
+          }
+
+          $release = Invoke-RestMethod -Uri $api -Headers $headers
+          $assets = @{}
+
+          foreach ($asset in $release.assets) {
+            $assets[$asset.name] = $asset
+          }
+
+          $partNames = @(
+            $assets.Keys |
+              Where-Object { $_ -match "\.iso\.zst\.part-\d+$" } |
+              Sort-Object
+          )
+
+          if ($partNames.Count -lt 2) {
+            throw "No split ISO parts found."
+          }
+
+          $prefix = $partNames[0] -replace "\.part-\d+$", ""
+          $fullChecksumName = "$prefix.sha256"
+          $partsChecksumName = "$prefix.parts.sha256"
+
+          $workDir = Join-Path `
+            ([System.IO.Path]::GetTempPath()) `
+            ([System.Guid]::NewGuid())
+
+          New-Item -ItemType Directory -Path $workDir | Out-Null
+
+          try {
+            function Download-Asset([string] $Name) {
+              if (-not $assets.ContainsKey($Name)) {
+                throw "Missing release asset: $Name"
+              }
+
+              $target = Join-Path $workDir $Name
+              $downloadHeaders = @{} + $headers
+              $downloadHeaders.Accept = "application/octet-stream"
+
+              Invoke-WebRequest `
+                -Uri $assets[$Name].browser_download_url `
+                -Headers $downloadHeaders `
+                -OutFile $target
+
+              return $target
+            }
+
+            $null = Download-Asset $fullChecksumName
+            $null = Download-Asset $partsChecksumName
+
+            $partPaths = foreach ($part in $partNames) {
+              Download-Asset $part
+            }
+
+            foreach ($line in Get-Content `
+              (Join-Path $workDir $partsChecksumName)) {
+              if ($line -match "^([0-9a-fA-F]{64})\s+\*?(.+)$") {
+                $expected = $Matches[1].ToLowerInvariant()
+                $path = Join-Path $workDir $Matches[2]
+                $actual = (
+                  Get-FileHash -Algorithm SHA256 -Path $path
+                ).Hash.ToLowerInvariant()
+
+                if ($actual -ne $expected) {
+                  throw "Part checksum mismatch: $($Matches[2])"
+                }
+              }
+            }
+
+            $outputPath = [System.IO.Path]::GetFullPath($Output)
+            $outputStream = [System.IO.File]::Create($outputPath)
+
+            try {
+              foreach ($partPath in $partPaths) {
+                $inputStream = [System.IO.File]::OpenRead($partPath)
+
+                try {
+                  $inputStream.CopyTo($outputStream)
+                }
+                finally {
+                  $inputStream.Dispose()
+                }
+              }
+            }
+            finally {
+              $outputStream.Dispose()
+            }
+
+            $expectedFull = (
+              Get-Content (Join-Path $workDir $fullChecksumName) |
+                Select-Object -First 1
+            ) -split "\s+" | Select-Object -First 1
+
+            $actualFull = (
+              Get-FileHash -Algorithm SHA256 -Path $outputPath
+            ).Hash
+
+            if ($actualFull.ToLowerInvariant() -ne
+                $expectedFull.ToLowerInvariant()) {
+              throw "Full compressed ISO checksum mismatch."
+            }
+
+            Write-Host "Downloaded and verified: $outputPath"
+          }
+          finally {
+            Remove-Item -LiteralPath $workDir -Recurse -Force
+          }
+          DOWNLOAD_SCRIPT
+
+          chmod +x "$OUT_DIR/download-kali-arm64.sh"
+
+          ls -lh "$OUT_DIR"
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ steps.release-tag.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Kali Linux ARM64 Live ${{ steps.release-tag.outputs.tag }}
+          generate_release_notes: ${{ !startsWith(steps.release-tag.outputs.tag, 'nightly-') }}
+          prerelease: ${{ startsWith(steps.release-tag.outputs.tag, 'nightly-') }}
+          body: |
+            Automated Kali Linux ARM64 offline installer image.
+
+            Because GitHub Release assets must be smaller than 2 GiB,
+            the compressed ISO is provided as split parts.
+
+            Linux/macOS:
+              chmod +x download-kali-arm64.sh
+              ./download-kali-arm64.sh OWNER/REPOSITORY TAG
+
+            Windows PowerShell:
+              .\download-kali-arm64.ps1 OWNER/REPOSITORY TAG
+
+            The scripts download all parts, combine them, and verify SHA256
+            checksums for both the parts and the complete compressed ISO.
+
+          files: |
+            ${{ env.OUT_DIR }}/*.iso.zst.part-*
+            ${{ env.OUT_DIR }}/*.iso.zst.sha256
+            ${{ env.OUT_DIR }}/*.iso.zst.parts.sha256
+            ${{ env.OUT_DIR }}/download-kali-arm64.sh
+            ${{ env.OUT_DIR }}/download-kali-arm64.ps1
+          fail_on_unmatched_files: true
