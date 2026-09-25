@@ -136,12 +136,12 @@ jobs:
           # by wget handling the encoded %2B in the remote filename.
           wget \
             -O debian-cd.deb \
-            "https://http.kali.org/kali/pool/main/l/live-build/$debian_cd_package"
+            "https://http.kali.org/kali/pool/main/d/debian-cd/$debian_cd_package"
 
           downloaded_version="$(dpkg-deb -f debian-cd.deb Version)"
           echo "Downloaded debian-cd version: $downloaded_version"
 
-          test "$downloaded_version" = "1:20250814+kali3"
+          test "$downloaded_version" = "3.2.3"
 
           sudo apt-get install --yes ./debian-cd.deb
 
